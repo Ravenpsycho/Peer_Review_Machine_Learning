@@ -439,7 +439,6 @@ print(accuracy.rf); print(accur.table)</code></pre>
 ##       E    0    0    0    2 1438</code></pre>
 <p>This is a pretty good result on the first try, random forest seems to make a great job with default settings and gives us an accuracy above 99% with a few misclassification evenly distributed among groups.</p>
 <p>However, we’ll try different methods to see if there’s an improvement.</p>
-<p>Model stacking as covered in the lessons cannot be performed (too high correlation between methods) increase accuracy by stacking another model to see if the tradeoff (interpretability) is worth the boost.</p>
 <pre class="r"><code># Building GBM Prediction
 mod.gbm &lt;- gbm(classe~., data = training, n.trees = 500)</code></pre>
 <pre><code>## Distribution not specified, assuming multinomial ...</code></pre>
@@ -462,20 +461,20 @@ print(accuracy.gbm); print(table(accur.gbm.df))</code></pre>
 <p>We can see that the acuracy is still high but lower, and the misclassification is less controlled.<br />
 We will probably stick with the randomForest model. Stacking the models (like demonstrated below) does not work great using the “gam” method. Probably because of the very high correlation of the two models.</p>
 <pre class="r"><code># Agreement accuracy
-agr.acc &lt;- sum(predict.gbm.fac == predict(mod.rf))/length(training$classe)</code></pre>
-<pre><code>## Warning in is.na(e1) | is.na(e2): longer object length is not a multiple of
-## shorter object length</code></pre>
-<pre><code>## Warning in `==.default`(predict.gbm.fac, predict(mod.rf)): longer object
-## length is not a multiple of shorter object length</code></pre>
-<pre class="r"><code>names(agr.acc) &lt;- &quot;Agreement Accuracy&quot;
+agr.acc &lt;- sum(predict.gbm.fac == predict(mod.rf, newdata = validation, type = &quot;response&quot;))/length(validation$classe)
+names(agr.acc) &lt;- &quot;Agreement Accuracy&quot;
 print(agr.acc)</code></pre>
 <pre><code>## Agreement Accuracy 
-##           0.236498</code></pre>
+##          0.9344889</code></pre>
 <p>Below is the (failed) attempt to stack both models.</p>
 <pre class="r"><code># Trying to stack models
-stack.df &lt;- data.frame(pred.rf = predict(mod.rf, newdata = validation),
-                       pred.gbm = predict.gbm.fac,
+stack.df &lt;- data.frame(pred.rf = as.numeric(predict(mod.rf, 
+                                                    newdata = validation, 
+                                                    type = &quot;response&quot;)),
+                       pred.gbm = as.numeric(predict.gbm.fac),
                        truth = validation$classe)
+stack.cor &lt;- cor(as.numeric(stack.df$pred.rf), as.numeric(stack.df$pred.gbm))
+names(stack.cor) &lt;- &quot;Correlation between the two models&quot;
 mod.stack &lt;- train(truth~., data = stack.df, method = &quot;gam&quot;)</code></pre>
 <pre><code>## Loading required package: mgcv</code></pre>
 <pre><code>## Loading required package: nlme</code></pre>
@@ -486,7 +485,7 @@ errors.mod.stack &lt;- predict(mod.stack, stack.df) != stack.df$truth
 accur.stack &lt;- data.frame(prediction = predict(mod.stack),
                           truth = stack.df$truth)
 table.stack &lt;- table(accur.stack)
-print(accuracy.stack); print(table.stack)</code></pre>
+print(accuracy.stack); print(table.stack); print(stack.cor)</code></pre>
 <pre><code>## Stacked Models Accuracy 
 ##               0.4762937</code></pre>
 <pre><code>##           truth
@@ -496,6 +495,8 @@ print(accuracy.stack); print(table.stack)</code></pre>
 ##          C    0    0    0    0    0
 ##          D    0    0    0    0    0
 ##          E    0    0    0    0    0</code></pre>
+<pre><code>## Correlation between the two models 
+##                          0.9585493</code></pre>
 <div id="applying-on-the-test-set" class="section level2">
 <h2>Applying on the test set</h2>
 <pre class="r"><code>final.pred &lt;- predict(mod.rf, newdata = testing)

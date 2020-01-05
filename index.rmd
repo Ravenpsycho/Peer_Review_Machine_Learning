@@ -79,8 +79,6 @@ This is a pretty good result on the first try, random forest seems to make a gre
 
 However, we'll try different methods to see if there's an improvement.
 
-Model stacking as covered in the lessons cannot be performed (too high correlation between methods) increase accuracy by stacking another model to see if the tradeoff (interpretability) is worth the boost.
-
 
 ```{r, cache=TRUE}
 # Building GBM Prediction
@@ -99,7 +97,7 @@ We will probably stick with the randomForest model. Stacking the models (like de
 
 ```{r}
 # Agreement accuracy
-agr.acc <- sum(predict.gbm.fac == predict(mod.rf))/length(training$classe)
+agr.acc <- sum(predict.gbm.fac == predict(mod.rf, newdata = validation, type = "response"))/length(validation$classe)
 names(agr.acc) <- "Agreement Accuracy"
 print(agr.acc)
 ```
@@ -108,9 +106,13 @@ Below is the (failed) attempt to stack both models.
 
 ```{r, warning=FALSE}
 # Trying to stack models
-stack.df <- data.frame(pred.rf = predict(mod.rf, newdata = validation),
-                       pred.gbm = predict.gbm.fac,
+stack.df <- data.frame(pred.rf = as.numeric(predict(mod.rf, 
+                                                    newdata = validation, 
+                                                    type = "response")),
+                       pred.gbm = as.numeric(predict.gbm.fac),
                        truth = validation$classe)
+stack.cor <- cor(as.numeric(stack.df$pred.rf), as.numeric(stack.df$pred.gbm))
+names(stack.cor) <- "Correlation between the two models"
 mod.stack <- train(truth~., data = stack.df, method = "gam")
 accuracy.stack <- sum(predict(mod.stack, stack.df)==stack.df$truth)/
   length(stack.df$truth); names(accuracy.stack) <- "Stacked Models Accuracy"
@@ -118,7 +120,7 @@ errors.mod.stack <- predict(mod.stack, stack.df) != stack.df$truth
 accur.stack <- data.frame(prediction = predict(mod.stack),
                           truth = stack.df$truth)
 table.stack <- table(accur.stack)
-print(accuracy.stack); print(table.stack)
+print(accuracy.stack); print(table.stack); print(stack.cor)
 ```
   
 ## Applying on the test set
