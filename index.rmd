@@ -1,0 +1,134 @@
+---
+title: "How well do you lift?"
+author: "Mathieu C."
+date: "16 décembre 2019"
+output: html_document
+---
+## Synopsis
+
+The goal of the following procedures is to make a model that reliably classifies (potentially new) data within five groups, labelled with letters A to E.  
+  
+The letters assess the quality of an exercise performed while wearing different sensors that produce the X, Y, and Z axis acceleration values as well as other values.
+  
+More details can be found by following this [link](https://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har), under the section *Weight Lifting Exercices Dataset* (Credits; *Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.*).  
+
+
+
+## Data Aquisition and Manipulation
+
+The code under details all manipulations done to the datasets (training and testing).  
+
+```{r, warning=FALSE, message=FALSE}
+# Loading libraries and setting the seed
+library(caret);library(ggplot2); library(randomForest); library(gbm)
+set.seed(1234)
+# Downloading the files containing the training/testing sets
+train.path <- 
+        "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test.path <- 
+        "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+if (!file.exists("train.csv") | !file.exists("test.csv")){
+        download.file(train.path, destfile = "train.csv")
+        download.file(test.path,destfile = "test.csv")
+}
+raw.training.set <- read.csv("train.csv", header = T, 
+                             na.strings = c("#DIV/0!","NA"),as.is = T)
+raw.testing.set <- read.csv("test.csv", header = T, 
+                            na.strings = c("#DIV/0!","NA"), as.is = T)
+
+# Removing columns containing NA values
+na.vals <- apply(raw.training.set, 2, is.na)
+na.vals.sum <- apply(na.vals, 2, sum)
+na.vals.cols <- na.vals.sum > 0
+training <- raw.training.set[,-which(na.vals.cols)]
+testing <- raw.testing.set[,-which(na.vals.cols)]
+
+## Further removing irrelevant columns like name, X, timestamps or ID of the serie
+training <- training[,8:60]; testing <- testing[,8:60]
+
+# Checking for high correlation in the remaining variables
+m.corr <- abs(cor(training[,-53]))
+diag(m.corr) <- 0
+
+# Crearing a validation set representing 40% of the training set
+intrain <- createDataPartition(training$classe, p = .60, list = F)
+validation <- training[-intrain,]
+training <- training[intrain,]
+
+```
+
+# Model Building and testing
+  
+We'll start with a randomForest model:
+
+```{r, cache=TRUE}
+## Building model
+training$classe <- factor(training$classe)
+mod.rf <- randomForest(classe~., training)
+
+## Accuracy test
+accur.df <- data.frame(predict = predict(mod.rf, newdata = validation), 
+                       true = validation$classe)
+accur.table <- table(accur.df)
+accuracy.rf <- sum(predict(mod.rf, newdata = validation) == validation$classe)/
+        length(validation$classe) ; names(accuracy.rf) <- "Random Forest Accuracy"
+print(accuracy.rf); print(accur.table)
+```
+
+This is a pretty good result on the first try, random forest seems to make a great job with default settings and gives us an accuracy above 99% with a few misclassification evenly distributed among groups.  
+
+However, we'll try different methods to see if there's an improvement.
+
+Model stacking as covered in the lessons cannot be performed (too high correlation between methods) increase accuracy by stacking another model to see if the tradeoff (interpretability) is worth the boost.
+
+
+```{r, cache=TRUE}
+# Building GBM Prediction
+mod.gbm <- gbm(classe~., data = training, n.trees = 500)
+predict.gbm <- predict(mod.gbm, newdata = validation, n.trees = 500, type = "response")
+
+predict.gbm.fac <- factor(apply(predict.gbm, 1, which.max))
+levels(predict.gbm.fac) <- c("A", "B", "C", "D", "E")
+accuracy.gbm <- sum(predict.gbm.fac == validation$classe)/ length(validation$classe) ; names(accuracy.gbm) <- "GBM Accuracy"
+accur.gbm.df <- data.frame(prediction = predict.gbm.fac, truth = validation$classe)
+print(accuracy.gbm); print(table(accur.gbm.df))
+```
+  
+We can see that the acuracy is still high but lower, and the misclassification is less controlled.  
+We will probably stick with the randomForest model. Stacking the models (like demonstrated below) does not work great using the "gam" method. Probably because of the very high correlation of the two models.
+
+```{r}
+# Agreement accuracy
+agr.acc <- sum(predict.gbm.fac == predict(mod.rf))/length(training$classe)
+names(agr.acc) <- "Agreement Accuracy"
+print(agr.acc)
+```
+  
+Below is the (failed) attempt to stack both models.
+
+```{r, warning=FALSE}
+# Trying to stack models
+stack.df <- data.frame(pred.rf = predict(mod.rf, newdata = validation),
+                       pred.gbm = predict.gbm.fac,
+                       truth = validation$classe)
+mod.stack <- train(truth~., data = stack.df, method = "gam")
+accuracy.stack <- sum(predict(mod.stack, stack.df)==stack.df$truth)/
+  length(stack.df$truth); names(accuracy.stack) <- "Stacked Models Accuracy"
+errors.mod.stack <- predict(mod.stack, stack.df) != stack.df$truth
+accur.stack <- data.frame(prediction = predict(mod.stack),
+                          truth = stack.df$truth)
+table.stack <- table(accur.stack)
+print(accuracy.stack); print(table.stack)
+```
+  
+## Applying on the test set
+  
+```{r}
+final.pred <- predict(mod.rf, newdata = testing)
+print(final.pred)
+```
+
+
+## Conclusion
+  
+The randomForest model gives expected results and has a good interpretability, if needed.
